@@ -77,6 +77,35 @@ The scraper serves a JSON response at port 9108 in the following format:
   }
 ]
 ```
+##To collect data from the Proxmox API, you need to create a dedicated user in the **PVE** realm (not **PAM**). The PVE realm is recommended because it is native to Proxmox and independent of external authentication sources.
+
+### Creating a Proxmox User:
+1. Navigate to **Datacenter → Permissions → Users** in the Proxmox UI.
+2. Click **Add** and create a new user:
+   - **User**: `prometheus-scraper`
+   - **Realm**: `PVE`
+   - **Password**: Set a secure password.
+
+### Assigning Permissions:
+The user needs specific privileges to read VM and infrastructure data. Assign the following roles to the user:
+
+- `Mapping.Audit`
+- `VM.Monitor`
+- `Pool.Audit`
+- `Datastore.Audit`
+- `SDN.Audit`
+- `VM.Audit`
+- `Sys.Audit`
+
+You can do this via the Proxmox UI under **Datacenter → Permissions**, or using the Proxmox shell:
+
+```sh
+pveum user add prometheus-scraper@pve --password 'your-secure-password'
+pveum aclmod / -user prometheus-scraper@pve -role PVEAuditor
+```
+
+This ensures the scraper can collect VM metadata while maintaining security by using minimal permissions.
+
 
 ## Installation
 
