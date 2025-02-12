@@ -80,13 +80,51 @@ The scraper serves a JSON response at port 9108 in the following format:
 
 ## Installation
 
-### 1. Deploy Scraper in Kubernetes
+### 1. Creating the ConfigMap for the Scraper
+To deploy the scraper in Kubernetes, you need to create a ConfigMap containing the Ruby scripts:
+
+pve-scraper.rb: Handles Proxmox API interactions and extracts VM metadata.
+scraper-server.rb: Serves the discovered targets in JSON format for Prometheus.
+Use the following command to create the ConfigMap from the script files:
+
+```
+kubectl create configmap pve-scrape-config \
+  --from-file=scripts/pve-scraper.rb \
+  --from-file=scripts/scraper-server.rb \
+  -n scraper-server-namespace
+```
+Alternatively, you can define the ConfigMap in a YAML file (pve-scrape-config.yaml):
+
+```
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pve-scrape-config
+  namespace: monitoring-gce
+data:
+  pve-scraper.rb: |
+    # Contents of pve-scraper.rb
+    # (Fetches VMs from Proxmox API, extracts tags, formats them as Prometheus labels)
+  scraper-server.rb: |
+    # Contents of scraper-server.rb
+    # (Serves the scraped data over HTTP for Prometheus service discovery)
+```
+
+Apply the ConfigMap with:
+
+```
+kubectl apply -f pve-scrape-config.yaml
+```
+
+This ConfigMap is later mounted into the scraper-server deployment to ensure the scripts run inside the container.
+
+### 2. Deploy Scraper in Kubernetes
 Apply the Kubernetes deployment from this repository:
 ```
 kubectl apply -f k8s/scraper-deployment.yaml
 ```
 
-### 2. Install node_exporter on VMs
+### 3. Install node_exporter on VMs
 Run the following commands inside each VM:
 ```
 wget https://github.com/prometheus/node_exporter/releases/latest/download/node_exporter-linux-amd64.tar.gz
@@ -109,7 +147,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now node_exporter
 ```
 
-### 3. Configure Prometheus
+### 4. Configure Prometheus
 
 Modify your Prometheus configuration to include:
 ```
@@ -122,7 +160,7 @@ scrape_configs:
         refresh_interval: "1m"
 ```
 
-### 4. Verify the Setup
+### 5. Verify the Setup
 Check from inside your k8s if Prometheus has discovered the VMs:
 ```
 curl http://scraper-server.scraper-server-namespace.svc.cluster.local:9108 | jq
