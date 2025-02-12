@@ -109,48 +109,28 @@ This ensures the scraper can collect VM metadata while maintaining security by u
 
 ## Installation
 
-### 1. Creating the ConfigMap for the Scraper
-To deploy the scraper in Kubernetes, you need to create a ConfigMap containing the Ruby scripts:
-
-pve-scraper.rb: Handles Proxmox API interactions and extracts VM metadata.
-scraper-server.rb: Serves the discovered targets in JSON format for Prometheus.
-Use the following command to create the ConfigMap from the script files:
-
+### 1. Setup Environment variables in deployments/pve-scraper.yaml
 ```
-kubectl create configmap pve-scrape-config \
-  --from-file=scripts/pve-scraper.rb \
-  --from-file=scripts/scraper-server.rb \
-  -n scraper-server-namespace
+    spec:
+      containers:
+      - name: pve-scraper
+        env:
+          - name: USER
+            value: "your-username"
+          - name: PASS
+            value: "your-password"
+          - name: PROXMOX_URL
+            value: "https://default-proxmox-url:8006/api2/json"
+          - name: INTERVAL
+            value: "60"
 ```
-Alternatively, you can define the ConfigMap in a YAML file (pve-scrape-config.yaml):
-
-```
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: pve-scrape-config
-  namespace: monitoring-gce
-data:
-  pve-scraper.rb: |
-    # Contents of pve-scraper.rb
-    # (Fetches VMs from Proxmox API, extracts tags, formats them as Prometheus labels)
-  scraper-server.rb: |
-    # Contents of scraper-server.rb
-    # (Serves the scraped data over HTTP for Prometheus service discovery)
-```
-
-Apply the ConfigMap with:
-
-```
-kubectl apply -f pve-scrape-config.yaml
-```
-
-This ConfigMap is later mounted into the scraper-server deployment to ensure the scripts run inside the container.
+Optional: You can check for other ways to iject secrets in the deployment
+Check for Hashicorp Vault or Kubernetes secrets options to do this in deployments/pve-scraper-templates.yaml
 
 ### 2. Deploy Scraper in Kubernetes
 Apply the Kubernetes deployment from this repository:
 ```
-kubectl apply -f k8s/scraper-deployment.yaml
+kubectl apply -f deployments/pve-scraper.yaml
 ```
 
 ### 3. Install node_exporter on VMs

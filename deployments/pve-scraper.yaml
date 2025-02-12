@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scraper-server
+  namespace: scraper-server-namespace
+spec:
+  ports:
+    - name: scraper-server
+      port: 9108
+      protocol: TCP
+      targetPort: scraper-server
+  selector:
+    app: pve-scraper
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pve-scraper
+  namespace: scraper-server-namespace
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pve-scraper
+  template:
+    metadata:
+      labels:
+        app: pve-scraper
+      annotations:
+    spec:
+      containers:
+      - name: pve-scraper
+        env:
+          - name: USER
+            value: "your-username"
+          - name: PASS
+            value: "your-password"
+          - name: PROXMOX_URL
+            value: "https://default-proxmox-url:8006/api2/json"
+          - name: INTERVAL
+            value: "60"
+        image: ruby:alpine
+        command: ["/bin/sh", "-c", "gem install httparty && ruby /app/config/pve_scraper.rb"]
+        volumeMounts:
+          - name: config-volume
+            mountPath: /app/config
+            readOnly: true
+          - name: shared
+            mountPath: /shared
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 10m
+          limits:
+            memory: 128Mi
+      - name: scraper-server
+        image: ruby:alpine
+        command: ["/bin/sh", "-c", "ruby /app/config/scraper-server.rb"]
+        volumeMounts:
+          - name: config-volume
+            mountPath: /app/config
+            readOnly: true
+          - name: shared
+            mountPath: /shared
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 10m
+          limits:
+            memory: 128Mi
+        ports:
+        - containerPort: 9108
+          name: scraper-server
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9108
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 300
+          timeoutSeconds: 15
+          failureThreshold: 3
+      volumes:
+        - name: config-volume
+          configMap:
+            name: pve-scrape-config
+        - name: shared
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pve-scrape-config
+  namespace: scraper-server-namespace
+data:
+  pve-scraper.rb: |
+    require 'httparty'
+    require 'json'
+
+    PROXMOX_URL = ENV['PROXMOX_URL'] || 'https://default-proxmox-url:8006/api2/json'
+    USERNAME = ENV['USER'] || 'default-user'
+    PASSWORD = ENV['PASS'] || 'default-password'
+    INTERVAL = ENV['INTERVAL'].to_i || 60
+
+    def scrape
+      # Authenticate with Proxmox
+      response = HTTParty.post("#{PROXMOX_URL}/access/ticket", {
+        headers: { 'Content-Type' => 'application/x-www-form-urlencoded' },
+        body: { username: USERNAME, password: PASSWORD },
+        verify: false
+      })
+
+      return { error: "Unable to authenticate" }.to_json unless response.code == 200
+
+      ticket = response.parsed_response['data']['ticket']
+      csrf_token = response.parsed_response['data']['CSRFPreventionToken']
+
+      prometheus_sd_config = []
+
+      # Fetch Proxmox nodes
+      nodes = HTTParty.get("#{PROXMOX_URL}/nodes", {
+        headers: { 'Cookie' => "PVEAuthCookie=#{ticket}" },
+        verify: false
+      }).parsed_response['data']
+
+      nodes.each do |node|
+        node_name = node['node']
+
+        # Fetch VMs on each node
+        vms = HTTParty.get("#{PROXMOX_URL}/nodes/#{node_name}/qemu", {
+          headers: { 'Cookie' => "PVEAuthCookie=#{ticket}" },
+          verify: false
+        }).parsed_response['data']
+
+        vms.each do |vm|
+          vmid = vm['vmid']
+
+          # Fetch VM configuration
+          config = HTTParty.get("#{PROXMOX_URL}/nodes/#{node_name}/qemu/#{vmid}/config", {
+            headers: { 'Cookie' => "PVEAuthCookie=#{ticket}" },
+            verify: false
+          }).parsed_response['data']
+
+          # Parse VM tags into labels
+          tags = (config["tags"] || '').split(';')
+          next if tags.include?("skipped")
+          
+          labels = tags.each_with_object({}) do |tag, hash|
+            next unless tag.include?('---')
+            key, value = tag.split('---')
+            hash[key] = value
+          end
+
+          # Fetch network interfaces (Guest Agent required)
+          interfaces = HTTParty.get("#{PROXMOX_URL}/nodes/#{node_name}/qemu/#{vmid}/agent/network-get-interfaces", {
+            headers: { 'Cookie' => "PVEAuthCookie=#{ticket}" },
+            verify: false
+          }).parsed_response.dig('data', 'result') || []
+
+          ip_addresses = interfaces.flat_map { |iface|
+            iface['ip-addresses']&.select { |ip|
+              ip['ip-address-type'] == 'ipv4' && ip['ip-address'].start_with?('192.168.210.')
+            }&.map { |ip| ip['ip-address'] }
+          }.compact
+
+          targets = ip_addresses.map { |ip| "#{ip}:9100" }
+
+          base_labels = {
+            "vm_id" => vmid.to_s,
+            "pvehost" => node_name,
+            "name" => config['name'],
+            "ip" => ip_addresses.first.to_s,
+            "instance" => config['name'],
+            "exporter" => "node_exporter"
+          }.merge(labels)
+
+          prometheus_sd_config << { "targets" => targets, "labels" => base_labels }
+
+        end
+      end
+
+      prometheus_sd_config.to_json
+    end
+
+    loop do
+      scrape_cache = scrape
+      File.write('/shared/scraper.output', scrape_cache) rescue puts "Error writing file"
+      sleep INTERVAL
+    end
+  scraper-server.rb: |
+    require 'json'
+    require 'socket'
+
+    # Open the file in read mode and load the content into scrape_cache
+    sleep 30
+
+    def readscrape
+      file_path = '/shared/scraper.output'
+      begin
+        # Reading the file content
+        scrape_cache = File.read(file_path)
+        #puts "File content loaded into scrape_cache successfully."
+        return scrape_cache
+      rescue Errno::ENOENT
+        puts "File not found: #{file_path}"
+        return "File not found: #{file_path}"
+      rescue => e
+        puts "An error occurred: #{e.message}"
+        return "An error occurred: #{e.message}"
+      end
+    end
+
+    # Setup TCP server to serve the JSON data
+    server = TCPServer.new("0.0.0.0", 9108)
+
+    puts "Server running on port 9108..."
+
+    while session = server.accept
+      puts "HTTP call from #{session.peeraddr[2]}"
+      response_body = readscrape
+      response_headers = [
+        "HTTP/1.1 200 OK",
+        "Content-Type: application/json",
+        "Content-Length: #{response_body.bytesize}",
+        "Connection: close"
+      ]
+
+      session.write response_headers.join("\r\n") + "\r\n\r\n"
+      session.write response_body
+    end
+

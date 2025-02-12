@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scraper-server
+  namespace: scraper-server-namespace
+  annotations:
+spec:
+  ports:
+    - name: scraper-server
+      port: 9108
+      protocol: TCP
+      targetPort: scraper-server
+  selector:
+    app: pve-scraper
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pve-scraper
+  namespace: scraper-server-namespace
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pve-scraper
+  template:
+    metadata:
+      labels:
+        app: pve-scraper
+      annotations:
+        #Hashicorp Vault Injection Secret Template
+        # vault.hashicorp.com/agent-inject: 'true'
+        # vault.hashicorp.com/role: 'pve-scraper'
+        # vault.hashicorp.com/agent-inject-secret-config: "secret/pve-scraper/credentials"
+        # vault.hashicorp.com/agent-inject-template-config: |
+        #   {{- with secret "secret/pve-scraper/credentials" -}}
+        #     export USER="{{ .Data.data.username }}"
+        #     export PASS="{{ .Data.data.password }}"
+        #   {{- end }}
+    spec:
+      #serviceAccountName: pve-scraper-sa
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: type
+                operator: In
+                values:
+                - SOMENODEGROUP
+      tolerations:
+      - effect: NoSchedule
+        key: tenant
+        operator: Equal
+        value: SOMENODEGROUP
+      containers:
+      - name: pve-scraper
+        #Passing secrets
+        #
+        #Realy unsecure, but easy
+        # env:
+        #   - name: USER
+        #     value: "your-username"
+        #   - name: PASS
+        #     value: "your-password"
+        #   - name: PROXMOX_URL
+        #     value: "https://default-proxmox-url:8006/api2/json"
+        #
+        ### Also not good but better: Using k8s Secret pve-scraper-secret
+        # env:
+        #   - name: USER
+        #     valueFrom:
+        #       secretKeyRef:
+        #         name: pve-scraper-secret
+        #         key: USER
+        #   - name: PASS
+        #     valueFrom:
+        #       secretKeyRef:
+        #         name: pve-scraper-secret
+        #         key: PASS
+        image: ruby:alpine
+        command: ["/bin/sh", "-c", "gem install httparty && ruby /app/config/pve_scraper.rb"]
+        volumeMounts:
+          - name: config-volume
+            mountPath: /app/config
+            readOnly: true
+          - name: shared
+            mountPath: /shared
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 10m
+          limits:
+            memory: 128Mi
+      - name: scraper-server
+        image: ruby:alpine
+        command: ["/bin/sh", "-c", "ruby /app/config/scraper-server.rb"]
+        volumeMounts:
+          - name: config-volume
+            mountPath: /app/config
+            readOnly: true
+          - name: shared
+            mountPath: /shared
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 10m
+          limits:
+            memory: 128Mi
+        ports:
+        - containerPort: 9108
+          name: scraper-server
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9108
+            scheme: HTTP
+          initialDelaySeconds: 60   # Wait 15 seconds before first probe
+          periodSeconds: 300         # Check every 10 seconds
+          timeoutSeconds: 15         # Wait 5 seconds for a response
+          failureThreshold: 3       # Mark the container unhealthy after 3 consecutive failures
+      volumes:
+        - name: config-volume
+          configMap:
+            name: pve-scrape-config
+        - name: shared
+          emptyDir: {}
+# ---
+# Hashicorp Vault SA setup
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRoleBinding
+# metadata:
+#   name: pve-scraper-sa-binding
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: ClusterRole
+#   name: system:auth-delegator
+# subjects:
+# - kind: ServiceAccount
+#   name: pve-scraper-sa
+#   namespace: scraper-server-namespace
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pve-scraper-ingress
+  namespace: scraper-server-namespace
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: your-scraper-domain
+      http:
+        paths:
+          - backend:
+              service:
+                name: scraper-server
+                port:
+                  number: 9108
+            path: /
+            pathType: Prefix
+---
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: pve-scraper-secret
+#   namespace: scraper-server-namespace
+# type: Opaque
+# data:
+#   USER: your-base64-encoded-username
+#   PASS: your-base64-encoded-password
+#   PROXMOX_URL: 'https://default-proxmox-url:8006/api2/json'
