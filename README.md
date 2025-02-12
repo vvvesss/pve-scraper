@@ -2,11 +2,11 @@
 
 ## Overview
 
-This project provides a Ruby-based scraper that dynamically discovers Proxmox VE virtual machines and registers them as Prometheus scrape targets using [http_sd_configs](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#http_sd_config). It allows precise monitoring of each VM using node_exporter, enabling integration with Grafana dashboards and Prometheus alerting.
+This project provides a Ruby-based scraper that dynamically discovers Proxmox VE virtual machines and registers them as Prometheus scrape targets using [http_sd_configs](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#http_sd_config). It allows precise monitoring of each VM using prometheus node exporter full, enabling integration with Grafana dashboards and Prometheus alerting.
 
 ### Why Use This?
 
-Monitor VMs as Standalone Instances: Unlike Proxmox's [exporter](https://github.com/prometheus-pve/prometheus-pve-exporter) (which are very nice btw, but aggregates metrics at the Proxmox VE node level), this setup provides granular VM monitoring by using node exporter full on each VM.
+Monitor VMs as Standalone Instances: Unlike Proxmox's [exporter](https://github.com/prometheus-pve/prometheus-pve-exporter), this setup provides granular monitoring by using "node exporter full" dashboard and metrics on each PVM.
 The other use cases are when you need to use other custom exporters.
 Dynamic Service Discovery: Automatically updates Prometheus targets when VMs are created or removed.
 Tag-Based Labeling: Uses Proxmox VM tags as Prometheus labels for better organization.
@@ -20,17 +20,17 @@ os---ubuntu
 
 osver---22.04lts
 
-project---xrp-mainnet
+project---your_project
 
-type---blockchain
+type---instance-type
 
 
 ```
 "labels": {
   "os": "ubuntu",
   "osver": "22.04lts",
-  "project": "xrp-mainnet",
-  "type": "blockchain"
+  "project": "your_project",
+  "type": "instance-type"
 }
 ```
 ### This approach ensures:
@@ -45,7 +45,7 @@ type---blockchain
 
 This structure allows for precise monitoring and alerting using Grafana dashboards and Prometheus queries like:
 ```
-node_load1{project="xrp-mainnet"}
+node_load1{project="your_project"}
 ```
 
 ### How It Works
@@ -83,8 +83,8 @@ The scraper serves a JSON response at port 9108 in the following format:
       "exporter": "node_exporter",
       "os": "ubuntu",
       "osver": "22.04lts",
-      "project": "xrp-mainnet",
-      "type": "blockchain"
+      "project": "your_project",
+      "type": "instance-type"
     }
   }
 ]
