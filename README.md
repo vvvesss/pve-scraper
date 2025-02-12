@@ -17,9 +17,13 @@ LabelName---LabelValue
 ### Example Tags:
 
 os---ubuntu
+
 osver---22.04lts
+
 project---xrp-mainnet
+
 type---blockchain
+
 
 ```
 "labels": {
@@ -29,7 +33,7 @@ type---blockchain
   "type": "blockchain"
 }
 ```
-###This approach ensures:
+### This approach ensures:
 
 
 ✅ Consistent Labeling – Every tag follows the same key-value structure.
