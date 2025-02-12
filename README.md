@@ -6,7 +6,8 @@ This project provides a Ruby-based scraper that dynamically discovers Proxmox VE
 
 ### Why Use This?
 
-Monitor VMs as Standalone Instances: Unlike Proxmox's [exporter](https://github.com/prometheus-pve/prometheus-pve-exporter) (which are very nice btw, but aggregates metrics at the host level), this setup provides granular VM monitoring.
+Monitor VMs as Standalone Instances: Unlike Proxmox's [exporter](https://github.com/prometheus-pve/prometheus-pve-exporter) (which are very nice btw, but aggregates metrics at the Proxmox VE node level), this setup provides granular VM monitoring by using node exporter full on each VM.
+The other use cases are when you need to use other custom exporters.
 Dynamic Service Discovery: Automatically updates Prometheus targets when VMs are created or removed.
 Tag-Based Labeling: Uses Proxmox VM tags as Prometheus labels for better organization.
 The scraper extracts VM tags from Proxmox and transforms them into Prometheus labels using a structured format. Each tag follows this convention:
@@ -27,9 +28,13 @@ type---blockchain
   "type": "blockchain"
 }
 This approach ensures:
+
 ✅ Consistent Labeling – Every tag follows the same key-value structure.
+
 ✅ Flexible Filtering – You can group, filter, or alert on VMs based on OS, project, or type.
+
 ✅ Dynamic Discovery – Any updates to VM tags in Proxmox automatically reflect in Prometheus.
+
 
 This structure allows for precise monitoring and alerting using Grafana dashboards and Prometheus queries like:
 ```
