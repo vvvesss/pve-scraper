@@ -11,15 +11,16 @@ The other use cases are when you need to use other custom exporters.
 Dynamic Service Discovery: Automatically updates Prometheus targets when VMs are created or removed.
 Tag-Based Labeling: Uses Proxmox VM tags as Prometheus labels for better organization.
 The scraper extracts VM tags from Proxmox and transforms them into Prometheus labels using a structured format. Each tag follows this convention:
-```
-labelname---labelvalue
-```
-For example, if a VM in Proxmox has the following tags:
-```
-os---ubuntu
-osver---22.04lts
-project---xrp-mainnet
-type---blockchain
+
+### labelname---labelvalue
+
+## Example Tags:
+
+### os---ubuntu
+### osver---22.04lts
+### project---xrp-mainnet
+### type---blockchain
+
 ```
 "labels": {
   "os": "ubuntu",
@@ -27,7 +28,9 @@ type---blockchain
   "project": "xrp-mainnet",
   "type": "blockchain"
 }
-This approach ensures:
+```
+###This approach ensures:
+
 
 ✅ Consistent Labeling – Every tag follows the same key-value structure.
 
